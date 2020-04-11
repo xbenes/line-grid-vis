@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>line-grid-vis</title>
+    <style>
+        .inputdata {
+            vertical-align: bottom;
+            width: 400px;
+            height: 70px;
+        }
+        .label {
+            display: inline-block;
+            width: 250px;
+            vertical-align: bottom;
+        }
+        .verticalrange, .horizontalrange {
+            width: 400px;
+        }
+    </style>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+</head>
+<body>
+    <div>
+        <div>
+            <span class="label">Input data (comma-separated millis and value)</span>
+            <textarea class="inputdata" onKeyUp="refreshChart()"></textarea>
+        </div>
+        <div>
+            <span class="label">Vertical scale</span>
+            <input type="range" min="1" max="20" value="10" class="verticalrange" onInput="refreshChart()">
+        </div>
+        <div>
+            <span class="label">Horizontal scale</span>
+            <input type="range" min="1" max="20" value="10" class="horizontalrange" onInput="refreshChart()">
+        </div>
+    </div>
+    <canvas class="canvas" width="0" height="0" ></canvas>
+    <script>
+        function getValue(selector) {
+            return document.querySelector(selector).value;
+        }
+
+        function preprocessData(text) {
+            return d3.csvParseRows(text).map(row => ({
+                x: parseInt(row[0], 10),
+                y: parseFloat(row[1])
+            })).filter(value => !isNaN(value.x) && !isNaN(value.y));
+        }
+
+        function drawLine(context, x1, y1, x2, y2, width, color) {
+            context.beginPath();
+            context.moveTo(x1, y1);
+            context.lineTo(x2, y2);
+            context.lineWidth = width;
+            context.strokeStyle = color;
+            context.stroke();
+        }
+
+        function mapToPixels(val, dpi) {
+            var onemm = dpi / 25.4; // one inch = 2.54 cm
+            return val * onemm;
+        }
+
+        function mapMillisToPixels(val, dpi, oneMMinMillis) {
+            return mapToPixels(val, dpi) / oneMMinMillis;
+        }
+
+        function refreshChart() {
+            var text = getValue(".inputdata");
+            if (!text) {
+                return;
+            }
+
+            var data = preprocessData(text);
+            var scaleY = getValue(".verticalrange");
+            var scaleX = getValue(".horizontalrange");
+
+            // browser limits
+            var MAX_CANVAS_WIDTH = 32700;
+
+            // base chart config
+            var baseDpi = 200;
+            var dpiMin = 100;
+            var dpiMax = 600;
+            var height = 400;
+
+            // grid config
+            var gridline = {
+                thin: 40,
+                thick: 200
+            };
+            var gridcolor = {
+                dark: '#fe4545',
+                light: '#feacac'
+            };
+
+            var dpiScale = d3.scaleLinear()
+                .domain([1, 20])
+                .range([dpiMax, dpiMin]);
+            var dpi = dpiScale(scaleX);
+
+            var verticalScale = d3.scaleLinear()
+                .domain([1, 20])
+                .range([0, 1]);
+            var scaleFactor = verticalScale(scaleY);
+
+            // offset data to be from zero millis
+            var dataxmin = d3.min(data.map(i => i.x));
+            var lineData = data.map(i => ({
+                x: i.x - dataxmin,
+                y: i.y
+            }));
+
+            var xes = lineData.map(e => e.x);
+            var xmax = d3.max(xes);
+            var xgridmax = Math.ceil(xmax / gridline.thin);
+            var gridData = d3.range(xgridmax).map(i => i * gridline.thin);
+
+            var yes = lineData.map(e => e.y);
+            var ymax = d3.max(yes);
+            var ymin = d3.min(yes);
+
+            var yscale = d3.scaleLinear()
+                .domain([ymin, ymax])
+                .range([0 + height / 2 * scaleFactor, height - height / 2 * scaleFactor]);
+
+            var width = mapMillisToPixels(xmax, dpi, gridline.thin);
+            if (width > MAX_CANVAS_WIDTH) {
+                console.warn("! Data too large, displaying only subset");
+            }
+
+            var canvas = document.querySelector(".canvas");
+            canvas.width = Math.min(width, MAX_CANVAS_WIDTH);
+            canvas.height = height;
+            var ctx = canvas.getContext("2d");
+
+            gridData.forEach(i => {
+                var isThick = i % gridline.thick == 0;
+                var width = isThick ? 2 : 1;
+                var color = isThick ? gridcolor.dark : gridcolor.light;
+                var mapped = mapMillisToPixels(i, dpi, gridline.thin);
+                drawLine(ctx, mapped, 0, mapped, height, width, color);
+            });
+
+            lineData.forEach((i, index) => {
+                if (index == 0) {
+                    return;
+                }
+
+                var xm = mapMillisToPixels(i.x, dpi, gridline.thin);
+                var y = height - yscale(i.y);
+
+                var xpm = mapMillisToPixels(lineData[index - 1].x, dpi, gridline.thin);
+                var yp = height - yscale(lineData[index - 1].y);
+
+                drawLine(ctx, xpm, yp, xm, y, 2, '#000');
+            });
+        }
+    </script>
+</body>
+</html>
